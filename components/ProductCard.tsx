@@ -50,7 +50,10 @@ export default function ProductCard({
             // Use our own API proxy to bypass CORS
             const response = await fetch(`/api/download-image?url=${encodeURIComponent(product.imageUrl)}&filename=${encodeURIComponent(filename)}`);
 
-            if (!response.ok) throw new Error('Download failed');
+            if (!response.ok) {
+                const errorData = await response.json();
+                throw new Error(errorData.error || 'Download failed');
+            }
 
             const blob = await response.blob();
             const url = window.URL.createObjectURL(blob);
@@ -62,9 +65,9 @@ export default function ProductCard({
             a.click();
             window.URL.revokeObjectURL(url);
             toast.success('Download started');
-        } catch (error) {
+        } catch (error: any) {
             console.error('Download failed:', error);
-            toast.error('Failed to download image. Please try again.');
+            toast.error(error.message || 'Failed to download image. Please try again.');
         } finally {
             setDownloading(false);
         }
