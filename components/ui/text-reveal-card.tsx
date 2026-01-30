@@ -148,29 +148,46 @@ export const TextRevealCardDescription = ({
 };
 
 const Stars = () => {
-  const randomMove = () => Math.random() * 4 - 2;
-  const randomOpacity = () => Math.random();
-  const random = () => Math.random();
+  const [stars, setStars] = useState<any[]>([]);
+
+  useEffect(() => {
+    const randomMove = () => Math.random() * 4 - 2;
+    const randomOpacity = () => Math.random();
+    const random = () => Math.random();
+
+    const starData = [...Array(80)].map((_, i) => ({
+      top: `${random() * 100}%`,
+      left: `${random() * 100}%`,
+      initialTop: `${random() * 100}%`,
+      initialLeft: `${random() * 100}%`,
+      opacity: randomOpacity(),
+      duration: random() * 10 + 20,
+      moveTop: `calc(${random() * 100}% + ${randomMove()}px)`,
+      moveLeft: `calc(${random() * 100}% + ${randomMove()}px)`,
+    }));
+    setStars(starData);
+  }, []);
+
   return (
     <div className="absolute inset-0">
-      {[...Array(80)].map((_, i) => (
+      {stars.map((star, i) => (
         <motion.span
           key={`star-${i}`}
           animate={{
-            top: `calc(${random() * 100}% + ${randomMove()}px)`,
-            left: `calc(${random() * 100}% + ${randomMove()}px)`,
-            opacity: randomOpacity(),
+            top: star.moveTop,
+            left: star.moveLeft,
+            opacity: star.opacity,
             scale: [1, 1.2, 0],
           }}
           transition={{
-            duration: random() * 10 + 20,
+            duration: star.duration,
             repeat: Infinity,
             ease: "linear",
           }}
           style={{
             position: "absolute",
-            top: `${random() * 100}%`,
-            left: `${random() * 100}%`,
+            top: star.initialTop,
+            left: star.initialLeft,
             width: `2px`,
             height: `2px`,
             backgroundColor: "#10b981",

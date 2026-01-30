@@ -3,6 +3,7 @@
 import { useState } from 'react';
 import { Copy, Download, Check, ExternalLink } from 'lucide-react';
 import Image from 'next/image';
+import { toast } from 'sonner';
 
 interface Product {
     id: string;
@@ -60,10 +61,10 @@ export default function ProductCard({
             document.body.appendChild(a);
             a.click();
             window.URL.revokeObjectURL(url);
+            toast.success('Download started');
         } catch (error) {
             console.error('Download failed:', error);
-            // Fallback: open in new tab
-            window.open(product.imageUrl, '_blank');
+            toast.error('Failed to download image. Please try again.');
         } finally {
             setDownloading(false);
         }
@@ -72,8 +73,8 @@ export default function ProductCard({
     return (
         <div
             className={`group relative bg-transparent rounded-2xl border transition-all duration-300 flex flex-col h-full ${isSelected
-                    ? 'border-brand-green ring-2 ring-brand-green ring-offset-2 dark:ring-offset-slate-950 shadow-md transform scale-[1.02]'
-                    : 'border-slate-100 dark:border-slate-800 shadow-sm'
+                ? 'border-brand-green ring-2 ring-brand-green ring-offset-2 dark:ring-offset-slate-950 shadow-md transform scale-[1.02]'
+                : 'border-slate-100 dark:border-slate-800 shadow-sm'
                 } ${isSelectionMode ? 'cursor-pointer' : ''}`}
             onClick={isSelectionMode && onToggle ? onToggle : undefined}
         >
@@ -92,8 +93,8 @@ export default function ProductCard({
                 {isSelectionMode && (
                     <div className="absolute top-3 right-3 z-30 pointer-events-none">
                         <div className={`w-6 h-6 rounded-full border-2 flex items-center justify-center transition-colors ${isSelected
-                                ? 'bg-brand-green border-brand-green text-white'
-                                : 'bg-white/80 dark:bg-slate-900/80 border-slate-300 dark:border-slate-600'
+                            ? 'bg-brand-green border-brand-green text-white'
+                            : 'bg-white/80 dark:bg-slate-900/80 border-slate-300 dark:border-slate-600'
                             }`}>
                             {isSelected && <Check className="w-4 h-4" />}
                         </div>
