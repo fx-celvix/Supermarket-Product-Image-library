@@ -1,6 +1,6 @@
 "use client";
 
-import { useState } from 'react';
+import { useState, useRef, useEffect } from 'react';
 import { Copy, Download, Check, ExternalLink, ImageOff, Package } from 'lucide-react';
 import Image from 'next/image';
 import { toast } from 'sonner';
@@ -29,6 +29,33 @@ export default function ProductCard({
     const [copied, setCopied] = useState(false);
     const [downloading, setDownloading] = useState(false);
     const [imageError, setImageError] = useState(false);
+    const [isVisible, setIsVisible] = useState(false);
+    const [imageLoaded, setImageLoaded] = useState(false);
+    const cardRef = useRef<HTMLDivElement>(null);
+
+    // IntersectionObserver for lazy loading - only load image when card is visible
+    useEffect(() => {
+        const observer = new IntersectionObserver(
+            (entries) => {
+                entries.forEach((entry) => {
+                    if (entry.isIntersecting) {
+                        setIsVisible(true);
+                        observer.disconnect(); // Stop observing once visible
+                    }
+                });
+            },
+            {
+                rootMargin: '100px', // Start loading slightly before entering viewport
+                threshold: 0.01
+            }
+        );
+
+        if (cardRef.current) {
+            observer.observe(cardRef.current);
+        }
+
+        return () => observer.disconnect();
+    }, []);
 
     // Check if image URL is valid
     const hasValidImage = product.imageUrl && !product.imageUrl.includes('placehold.co') && !imageError;
@@ -107,6 +134,7 @@ export default function ProductCard({
 
     return (
         <div
+            ref={cardRef}
             className={`group relative bg-transparent rounded-2xl border transition-all duration-300 flex flex-col h-full ${isSelected
                 ? 'border-brand-green ring-2 ring-brand-green ring-offset-2 dark:ring-offset-slate-950 shadow-md transform scale-[1.02]'
                 : 'border-slate-100 dark:border-slate-800 shadow-sm'
@@ -139,14 +167,30 @@ export default function ProductCard({
                 {/* Image Area with Actions Overlay */}
                 <div className="relative aspect-square p-6 bg-slate-50 dark:bg-slate-800 flex items-center justify-center overflow-hidden transition-colors duration-300">
                     <div className="relative w-full h-full transition-transform duration-500 group-hover:scale-105">
-                        {hasValidImage ? (
-                            <img
-                                src={product.imageUrl}
-                                alt={product.name}
-                                className="w-full h-full object-contain drop-shadow-md"
-                                loading="lazy"
-                                onError={() => setImageError(true)}
-                            />
+                        {/* Only render image when card is visible in viewport */}
+                        {!isVisible ? (
+                            // Skeleton placeholder before card becomes visible
+                            <div className="w-full h-full flex items-center justify-center bg-slate-100 dark:bg-slate-700 rounded-xl animate-pulse">
+                                <Package className="w-10 h-10 text-slate-300 dark:text-slate-600" />
+                            </div>
+                        ) : hasValidImage ? (
+                            <>
+                                {/* Loading skeleton shown until image loads */}
+                                {!imageLoaded && (
+                                    <div className="absolute inset-0 flex items-center justify-center bg-slate-100 dark:bg-slate-700 rounded-xl animate-pulse">
+                                        <Package className="w-10 h-10 text-slate-300 dark:text-slate-600" />
+                                    </div>
+                                )}
+                                <img
+                                    src={product.imageUrl}
+                                    alt={product.name}
+                                    className={`w-full h-full object-contain drop-shadow-md transition-opacity duration-300 ${imageLoaded ? 'opacity-100' : 'opacity-0'}`}
+                                    loading="lazy"
+                                    decoding="async"
+                                    onLoad={() => setImageLoaded(true)}
+                                    onError={() => setImageError(true)}
+                                />
+                            </>
                         ) : (
                             <div className="w-full h-full flex flex-col items-center justify-center bg-gradient-to-br from-slate-100 to-slate-200 dark:from-slate-700 dark:to-slate-800 rounded-xl">
                                 <div className="p-4 rounded-full bg-slate-200/80 dark:bg-slate-600/50 mb-3">
