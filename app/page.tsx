@@ -228,7 +228,11 @@ function ProductGrid() {
         try {
           const { timestamp, products } = JSON.parse(cached);
           if (Date.now() - timestamp < CACHE_DURATION && products.length > 0) {
-            setProducts(products);
+            // Deduplicate cached products to prevent React key warnings
+            const uniqueCachedProducts = Array.from(
+              new Map(products.map((p: Product) => [p.id, p])).values()
+            ) as Product[];
+            setProducts(uniqueCachedProducts);
             setIsLoading(false);
             return;
           }
@@ -277,7 +281,12 @@ function ProductGrid() {
         price: p.price
       }));
 
-      setProducts(mappedProducts);
+      // Deduplicate by id to prevent React key warnings
+      const uniqueProducts = Array.from(
+        new Map(mappedProducts.map(p => [p.id, p])).values()
+      );
+
+      setProducts(uniqueProducts);
       setIsLoading(false);
 
       try {
