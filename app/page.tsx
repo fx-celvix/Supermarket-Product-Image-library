@@ -5,7 +5,7 @@ import { Suspense, useState, useEffect, useMemo } from 'react';
 import Navbar from "@/components/Navbar";
 import ProductCard from "@/components/ProductCard";
 import ImageActionModal from "@/components/ImageActionModal";
-import { Search, Download, Check, X, FileSpreadsheet } from "lucide-react";
+import { Search, Download, Check, X, FileSpreadsheet, RefreshCw } from "lucide-react";
 import Image from "next/image";
 import { useSearchParams } from 'next/navigation';
 import {
@@ -28,6 +28,7 @@ import * as XLSX from 'xlsx';
 // Mock Data removed. Using dynamic data from Supabase.
 
 import { createClient } from '@/utils/supabase/client';
+import { cacheDB, CACHE_KEYS, CACHE_VERSION, CACHE_DURATION } from '@/utils/cache';
 
 interface Product {
   id: string;
@@ -40,6 +41,11 @@ interface Product {
   size?: string;
 }
 
+// Category cache structure for IndexedDB
+interface CategoryCache {
+  map: Record<string, { image: string, link: string | null }>;
+  tree: Record<string, string[]>;
+}
 
 function ProductGrid() {
   const [activeCategory, setActiveCategory] = useState('All');
@@ -51,6 +57,7 @@ function ProductGrid() {
   const supabase = createClient();
   const [products, setProducts] = useState<Product[]>([]);
   const [isLoading, setIsLoading] = useState(true);
+  const [isCacheRefreshing, setIsCacheRefreshing] = useState(false);
 
   // Selection & Export Logic
   const [isSelectionMode, setIsSelectionMode] = useState(false);
@@ -92,34 +99,24 @@ function ProductGrid() {
     setSelectedProducts(newSelected);
   };
 
+  // Select all / Deselect all
+  const handleSelectAll = () => {
+    if (selectedProducts.size === filteredProducts.length) {
+      setSelectedProducts(new Set());
+    } else {
+      setSelectedProducts(new Set(filteredProducts.map(p => p.id)));
+    }
+  };
+
+  // Export to Excel
   const handleExport = () => {
-    if (selectedProducts.size === 0) return;
-
-    const data = Array.from(selectedProducts).map(id => {
-      const product = products.find(p => p.id === id);
-      if (!product) return null;
-
-      const catKey = `root:${product.category.trim().toLowerCase()}`;
-      const catImage = categoryMeta[catKey]?.image || "";
-
-      const subKey = `${product.category.trim().toLowerCase()}:${product.subcategory.trim().toLowerCase()}`;
-      let subImage = categoryMeta[subKey]?.image || "";
-      if (!subImage) {
-        const productWithImage = products.find(p => p.category === product.category && p.subcategory === product.subcategory && p.imageUrl);
-        subImage = productWithImage?.imageUrl || "";
-      }
-
-      return {
-        "Category": product.category,
-        "Subcategory": product.subcategory,
-        "Name": product.name,
-        "Size": product.size || "",
-        "Price": product.price || "",
-        "Image URL": product.imageUrl,
-        "Category Image URL": catImage,
-        "Subcategory Image URL": subImage
-      };
-    }).filter(Boolean);
+    const selected = products.filter(p => selectedProducts.has(p.id));
+    const data = selected.map(p => ({
+      Name: p.name,
+      Category: p.category,
+      Subcategory: p.subcategory || '',
+      ImageURL: p.imageUrl
+    }));
 
     const worksheet = XLSX.utils.json_to_sheet(data);
     const workbook = XLSX.utils.book_new();
@@ -131,38 +128,38 @@ function ProductGrid() {
   const [categoryMeta, setCategoryMeta] = useState<Record<string, { image: string, link: string | null }>>({});
   const [categoryTree, setCategoryTree] = useState<Record<string, Set<string>>>({});
 
-  // Cache Keys & Duration
-  const CACHE_DURATION = 7 * 24 * 60 * 60 * 1000; // 7 days
-  const CATEGORY_CACHE_KEY = 'grocery_cache_categories';
-  const PRODUCT_CACHE_KEY = 'grocery_cache_products';
+  // Cleanup old localStorage cache on mount (migration to IndexedDB)
+  useEffect(() => {
+    const keysToClean = ['grocery_cache_categories', 'grocery_cache_products', 'grocery_cache_categories_v1', 'grocery_cache_products_v1'];
+    keysToClean.forEach(key => {
+      if (localStorage.getItem(key)) {
+        localStorage.removeItem(key);
+      }
+    });
+  }, []);
+
+  // Force refresh cache - clears IndexedDB cache and reloads page
+  const forceRefreshCache = async () => {
+    setIsCacheRefreshing(true);
+    await cacheDB.clear();
+    window.location.reload();
+  };
 
   useEffect(() => {
     const fetchMeta = async () => {
-      // Check Cache
-      const cached = localStorage.getItem(CATEGORY_CACHE_KEY);
+      // Check IndexedDB Cache
+      const cached = await cacheDB.get<CategoryCache>(CACHE_KEYS.CATEGORIES, CACHE_VERSION, CACHE_DURATION);
       if (cached) {
-        try {
-          const { timestamp, map, tree } = JSON.parse(cached);
-          if (Date.now() - timestamp < CACHE_DURATION) {
-            // Hydrate Tree (Array -> Set)
-            const hydratedTree: Record<string, Set<string>> = {};
-            Object.keys(tree).forEach(k => {
-              // @ts-ignore
-              hydratedTree[k] = new Set(tree[k]);
-            });
+        // Hydrate Tree (Array -> Set)
+        const hydratedTree: Record<string, Set<string>> = {};
+        Object.keys(cached.tree).forEach(k => {
+          hydratedTree[k] = new Set(cached.tree[k]);
+        });
 
-            setCategoryMeta(map);
-            setCategoryTree(hydratedTree);
+        setCategoryMeta(cached.map);
+        setCategoryTree(hydratedTree);
 
-            // If cache is valid, returns early for Categories, 
-            // BUT we might still want to fetch in background to revalidate? 
-            // For now, adhere to "store in local memory instead of fetching", so pure cache first.
-            if (Object.keys(map).length > 0) return;
-          }
-        } catch (e) {
-          console.error("Cache parse error", e);
-          localStorage.removeItem(CATEGORY_CACHE_KEY);
-        }
+        if (Object.keys(cached.map).length > 0) return;
       }
 
       const { data } = await supabase.from('categories').select('name, parent_name, image_url, link');
@@ -189,29 +186,17 @@ function ProductGrid() {
           }
         });
 
-        // Serialize Sets for caching (Sets are not JSON serializable by default)
+        // Serialize Sets for caching (Sets are not JSON serializable)
         const treeForCache: Record<string, string[]> = {};
         Object.keys(tree).forEach(k => {
           treeForCache[k] = Array.from(tree[k]);
         });
 
-        // Save to Cache (store tree as array for JSON, convert back on load if needed, but here we can just store the object structure matching state?
-        // Wait, setCategoryTree expects Record<string, Set<string>>. 
-        // JSON.parse will return arrays for the sets. We need to handle that in the hydration phase above.
-
-        // Let's fix the hydration logic above first. 
-        // Actually, let's keep it simple: 
-        // We will store the "raw data" or the processed structures.
-        // Storing processed structures requires re-hydrating the Sets.
-
         setCategoryMeta(map);
         setCategoryTree(tree);
 
-        localStorage.setItem(CATEGORY_CACHE_KEY, JSON.stringify({
-          timestamp: Date.now(),
-          map,
-          tree: treeForCache // Store as arrays
-        }));
+        // Save to IndexedDB cache
+        await cacheDB.set<CategoryCache>(CACHE_KEYS.CATEGORIES, { map, tree: treeForCache }, CACHE_VERSION);
       }
     };
     fetchMeta();
@@ -222,24 +207,16 @@ function ProductGrid() {
     const fetchAllProducts = async () => {
       setIsLoading(true);
 
-      // Check Cache
-      const cached = localStorage.getItem(PRODUCT_CACHE_KEY);
-      if (cached) {
-        try {
-          const { timestamp, products } = JSON.parse(cached);
-          if (Date.now() - timestamp < CACHE_DURATION && products.length > 0) {
-            // Deduplicate cached products to prevent React key warnings
-            const uniqueCachedProducts = Array.from(
-              new Map(products.map((p: Product) => [p.id, p])).values()
-            ) as Product[];
-            setProducts(uniqueCachedProducts);
-            setIsLoading(false);
-            return;
-          }
-        } catch (e) {
-          console.error("Product cache parse error", e);
-          localStorage.removeItem(PRODUCT_CACHE_KEY);
-        }
+      // Check IndexedDB Cache
+      const cachedProducts = await cacheDB.get<Product[]>(CACHE_KEYS.PRODUCTS, CACHE_VERSION, CACHE_DURATION);
+      if (cachedProducts && cachedProducts.length > 0) {
+        // Deduplicate cached products to prevent React key warnings
+        const uniqueCachedProducts = Array.from(
+          new Map(cachedProducts.map((p: Product) => [p.id, p])).values()
+        ) as Product[];
+        setProducts(uniqueCachedProducts);
+        setIsLoading(false);
+        return;
       }
 
       let allProducts: any[] = [];
@@ -284,19 +261,13 @@ function ProductGrid() {
       // Deduplicate by id to prevent React key warnings
       const uniqueProducts = Array.from(
         new Map(mappedProducts.map(p => [p.id, p])).values()
-      );
+      ) as Product[];
 
       setProducts(uniqueProducts);
       setIsLoading(false);
 
-      try {
-        localStorage.setItem(PRODUCT_CACHE_KEY, JSON.stringify({
-          timestamp: Date.now(),
-          products: mappedProducts
-        }));
-      } catch (e) {
-        console.error("Failed to save products to cache (quota exceeded?)", e);
-      }
+      // Save to IndexedDB cache (no quota issues like localStorage)
+      await cacheDB.set<Product[]>(CACHE_KEYS.PRODUCTS, uniqueProducts, CACHE_VERSION);
     };
 
     fetchAllProducts();
