@@ -1,7 +1,7 @@
 "use client";
 
 // Force HMR refresh
-import { Suspense, useState, useEffect, useMemo } from 'react';
+import { Suspense, useState, useEffect, useMemo, useRef } from 'react';
 import Navbar from "@/components/Navbar";
 import ProductCard from "@/components/ProductCard";
 import ImageActionModal from "@/components/ImageActionModal";
@@ -283,6 +283,44 @@ function ProductGrid() {
       };
     });
   }, [mainCategories, categoryMeta]);
+
+  // --- Infinite Scroll Logic ---
+  const [visibleCount, setVisibleCount] = useState(20);
+  const loadMoreRef = useRef<HTMLDivElement>(null);
+
+  // Reset rendering limit when filters change
+  useEffect(() => {
+    setVisibleCount(20);
+    // Scroll to top of grid behavior is handled naturally by the layout, 
+    // but if we wanted to force it we could do it here.
+  }, [activeCategory, activeSubCategory, searchQuery]);
+
+  // Intersection Observer for loading more
+  useEffect(() => {
+    const observer = new IntersectionObserver(
+      (entries) => {
+        if (entries[0].isIntersecting) {
+          setVisibleCount((prev) => Math.min(prev + 20, filteredProducts.length));
+        }
+      },
+      { rootMargin: "200px" } // Load before reaching the bottom
+    );
+
+    if (loadMoreRef.current) {
+      observer.observe(loadMoreRef.current);
+    }
+
+    return () => {
+      if (loadMoreRef.current) {
+        observer.unobserve(loadMoreRef.current);
+      }
+      observer.disconnect();
+    };
+  }, [filteredProducts.length, visibleCount]);
+
+  // Slice products for rendering
+  const displayedProducts = filteredProducts.slice(0, visibleCount);
+
 
   return (
     <>
@@ -584,18 +622,30 @@ function ProductGrid() {
 
           {/* Products Grid - Only show when not loading */}
           {!isLoading && filteredProducts.length > 0 && (
-            <div className={`grid grid-cols-2 ${activeCategory !== 'All' ? 'md:grid-cols-2 lg:grid-cols-3 xl:grid-cols-4' : 'md:grid-cols-3 lg:grid-cols-4 xl:grid-cols-5'} gap-6`}>
-              {filteredProducts.map((product, index) => (
-                <ProductCard
-                  key={product.id}
-                  product={product}
-                  isSelectionMode={isSelectionMode}
-                  isSelected={selectedProducts.has(product.id)}
-                  onToggle={() => handleProductToggle(product.id)}
-                  priority={index < 20}
-                />
-              ))}
-            </div>
+            <>
+              <div className={`grid grid-cols-2 ${activeCategory !== 'All' ? 'md:grid-cols-2 lg:grid-cols-3 xl:grid-cols-4' : 'md:grid-cols-3 lg:grid-cols-4 xl:grid-cols-5'} gap-6`}>
+                {displayedProducts.map((product, index) => (
+                  <ProductCard
+                    key={product.id}
+                    product={product}
+                    isSelectionMode={isSelectionMode}
+                    isSelected={selectedProducts.has(product.id)}
+                    onToggle={() => handleProductToggle(product.id)}
+                    priority={index < 20}
+                  />
+                ))}
+              </div>
+
+              {/* Sentinel for Infinite Scroll */}
+              {visibleCount < filteredProducts.length && (
+                <div ref={loadMoreRef} className="py-8 flex justify-center w-full">
+                  <div className="flex flex-col items-center gap-2">
+                    <div className="w-6 h-6 border-2 border-brand-green/30 border-t-brand-green rounded-full animate-spin" />
+                    <span className="text-xs text-slate-400">Loading more...</span>
+                  </div>
+                </div>
+              )}
+            </>
           )}
 
           {/* Empty State - Only show when not loading AND no products */}

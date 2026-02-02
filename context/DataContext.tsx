@@ -145,10 +145,15 @@ export function DataProvider({ children }: DataProviderProps) {
 
         if (cachedProducts && cachedProducts.length > 0) {
             console.log(`[Cache] Found ${cachedProducts.length} cached products. Using cache.`);
-            // Deduplicate cached products
-            const uniqueCachedProducts = Array.from(
-                new Map(cachedProducts.map((p) => [p.id, p])).values()
-            ) as Product[];
+            // Deduplicate cached products efficiently
+            const seen = new Set<string>();
+            const uniqueCachedProducts: Product[] = [];
+            for (const p of cachedProducts) {
+                if (!seen.has(p.id)) {
+                    seen.add(p.id);
+                    uniqueCachedProducts.push(p);
+                }
+            }
             setProducts(uniqueCachedProducts);
             return;
         }
@@ -198,9 +203,15 @@ export function DataProvider({ children }: DataProviderProps) {
         }));
 
         // Deduplicate
-        const uniqueProducts = Array.from(
-            new Map(mappedProducts.map(p => [p.id, p])).values()
-        ) as Product[];
+        // Deduplicate efficiently
+        const seen = new Set<string>();
+        const uniqueProducts: Product[] = [];
+        for (const p of mappedProducts) {
+            if (!seen.has(p.id)) {
+                seen.add(p.id);
+                uniqueProducts.push(p);
+            }
+        }
 
         setProducts(uniqueProducts);
 
