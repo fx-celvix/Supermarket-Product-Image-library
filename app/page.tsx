@@ -129,12 +129,78 @@ function ProductGrid() {
     }
   };
 
-  const filteredProducts = products.filter(product => {
-    const matchesCategory = activeCategory === 'All' || product.category === activeCategory;
-    const matchesSubCategory = activeSubCategory === 'All' || product.subcategory === activeSubCategory;
-    const matchesSearch = product.name.toLowerCase().includes(searchQuery.toLowerCase());
-    return matchesCategory && matchesSubCategory && matchesSearch;
-  });
+  // Pre-index products by category for instant switching (computed once)
+  const productsByCategory = useMemo(() => {
+    const index: Record<string, typeof products> = { 'All': products };
+    products.forEach(product => {
+      if (product.category) {
+        if (!index[product.category]) {
+          index[product.category] = [];
+        }
+        index[product.category].push(product);
+      }
+    });
+    return index;
+  }, [products]);
+
+  // Pre-index products by category+subcategory for instant sub-category switching
+  const productsByCategoryAndSub = useMemo(() => {
+    const index: Record<string, typeof products> = {};
+    products.forEach(product => {
+      if (product.category && product.subcategory) {
+        const key = `${product.category}::${product.subcategory}`;
+        if (!index[key]) {
+          index[key] = [];
+        }
+        index[key].push(product);
+      }
+    });
+    return index;
+  }, [products]);
+
+  // Fast filtering using pre-indexed data
+  const filteredProducts = useMemo(() => {
+    // Get category-filtered products instantly from index
+    let categoryProducts: typeof products;
+    if (activeCategory === 'All') {
+      categoryProducts = productsByCategory['All'] || [];
+    } else {
+      categoryProducts = productsByCategory[activeCategory] || [];
+    }
+
+    // Apply subcategory filter if needed
+    let result: typeof products;
+    if (activeSubCategory === 'All') {
+      result = categoryProducts;
+    } else {
+      // Use the combined index for instant lookup
+      const key = `${activeCategory}::${activeSubCategory}`;
+      result = productsByCategoryAndSub[key] || [];
+    }
+
+    // Apply search filter only if there's a search query
+    if (searchQuery) {
+      const lowerSearch = searchQuery.toLowerCase();
+      return result.filter(product => product.name.toLowerCase().includes(lowerSearch));
+    }
+
+    return result;
+  }, [productsByCategory, productsByCategoryAndSub, activeCategory, activeSubCategory, searchQuery]);
+
+  // Preload first 20 images when category changes for instant display
+  useEffect(() => {
+    if (filteredProducts.length === 0) return;
+
+    // Preload first 20 images using browser's native Image preloading
+    const preloadCount = Math.min(20, filteredProducts.length);
+    for (let i = 0; i < preloadCount; i++) {
+      const product = filteredProducts[i];
+      if (product.imageUrl && !product.imageUrl.includes('placehold.co')) {
+        const img = new window.Image();
+        img.src = product.imageUrl;
+      }
+    }
+  }, [filteredProducts]);
 
   // Derive subcategories dynamically from CONFIGURATION (DB), not just products
   const subCategories = useMemo(() => {
@@ -394,26 +460,26 @@ function ProductGrid() {
           <Dock iconSize={52} className="bg-white/80 dark:bg-slate-900/80 backdrop-blur-xl border border-slate-200/50 dark:border-slate-700/50 shadow-2xl mb-0">
             {!isSelectionMode ? (
               <DockIcon onClick={toggleSelectionMode} className="cursor-pointer !w-auto !aspect-auto min-w-32" magnification={60} distance={100}>
-                <div className="h-full w-full flex items-center justify-center gap-2.5 px-6 bg-gradient-to-tr from-brand-green to-brand-green-dark text-white rounded-full shadow-lg shadow-brand-green/20 hover:shadow-brand-green/30 transition-all border border-white/10">
+                <div className="h-full w-full flex items-center justify-center gap-2.5 px-6 bg-gradient-to-tr from-brand-green to-brand-green-dark text-white rounded-full shadow-lg shadow-brand-green/20 hover:shadow-brand-green/30 transition-all border border-white/10 pointer-events-none">
                   <FileSpreadsheet className="h-6 w-6" />
                   <span className="text-base font-bold">Select</span>
                 </div>
               </DockIcon>
             ) : (
               <>
-                <div className="px-4 flex items-center justify-center h-full">
+                <div className="px-4 flex items-center justify-center h-full pointer-events-none">
                   <span className="text-base font-bold text-slate-900 dark:text-white bg-slate-100 dark:bg-slate-800 px-4 py-2.5 rounded-full whitespace-nowrap border border-slate-200 dark:border-slate-700 shadow-inner">
                     {selectedProducts.size} <span className="text-slate-500 font-medium text-sm ml-1">selected</span>
                   </span>
                 </div>
-                <div className="w-px h-8 bg-slate-200 dark:bg-slate-700 mx-1 self-center" />
+                <div className="w-px h-8 bg-slate-200 dark:bg-slate-700 mx-1 self-center pointer-events-none" />
                 <DockIcon onClick={toggleSelectionMode} className="cursor-pointer" magnification={60} distance={100}>
-                  <div className="h-full w-full flex items-center justify-center bg-slate-100 dark:bg-slate-800 rounded-full text-slate-500 hover:bg-slate-200 dark:hover:bg-slate-700 transition-colors border border-slate-200 dark:border-slate-700">
+                  <div className="h-full w-full flex items-center justify-center bg-slate-100 dark:bg-slate-800 rounded-full text-slate-500 hover:bg-slate-200 dark:hover:bg-slate-700 transition-colors border border-slate-200 dark:border-slate-700 pointer-events-none">
                     <X className="h-5 w-5" />
                   </div>
                 </DockIcon>
                 <DockIcon onClick={handleExport} className="cursor-pointer !w-auto !aspect-auto min-w-44" magnification={70} distance={100}>
-                  <div className={`h-full w-full flex items-center justify-center gap-2.5 px-6 rounded-full transition-all border ${selectedProducts.size > 0
+                  <div className={`h-full w-full flex items-center justify-center gap-2.5 px-6 rounded-full transition-all border pointer-events-none ${selectedProducts.size > 0
                     ? 'bg-gradient-to-tr from-brand-green to-brand-green-dark text-white shadow-lg shadow-brand-green/20 hover:shadow-brand-green/30 border-white/10'
                     : 'bg-slate-50 dark:bg-slate-900 text-slate-400 border-slate-200 dark:border-slate-800'
                     }`}>
@@ -519,13 +585,14 @@ function ProductGrid() {
           {/* Products Grid - Only show when not loading */}
           {!isLoading && filteredProducts.length > 0 && (
             <div className={`grid grid-cols-2 ${activeCategory !== 'All' ? 'md:grid-cols-2 lg:grid-cols-3 xl:grid-cols-4' : 'md:grid-cols-3 lg:grid-cols-4 xl:grid-cols-5'} gap-6`}>
-              {filteredProducts.map(product => (
+              {filteredProducts.map((product, index) => (
                 <ProductCard
                   key={product.id}
                   product={product}
                   isSelectionMode={isSelectionMode}
                   isSelected={selectedProducts.has(product.id)}
                   onToggle={() => handleProductToggle(product.id)}
+                  priority={index < 20}
                 />
               ))}
             </div>

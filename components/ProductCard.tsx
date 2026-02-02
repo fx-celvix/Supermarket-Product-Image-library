@@ -19,33 +19,42 @@ export default function ProductCard({
     product,
     isSelectionMode = false,
     isSelected = false,
-    onToggle
+    onToggle,
+    priority = false
 }: {
     product: Product;
     isSelectionMode?: boolean;
     isSelected?: boolean;
     onToggle?: () => void;
+    priority?: boolean;
 }) {
     const [copied, setCopied] = useState(false);
     const [downloading, setDownloading] = useState(false);
     const [imageError, setImageError] = useState(false);
-    const [isVisible, setIsVisible] = useState(false);
+    // Priority images are visible immediately, non-priority use intersection observer
+    const [isVisible, setIsVisible] = useState(priority);
     const [imageLoaded, setImageLoaded] = useState(false);
     const cardRef = useRef<HTMLDivElement>(null);
 
-    // IntersectionObserver for lazy loading - only load image when card is visible
+    // IntersectionObserver for lazy loading - only for non-priority images
     useEffect(() => {
+        // Skip observer for priority images - they load immediately
+        if (priority) {
+            setIsVisible(true);
+            return;
+        }
+
         const observer = new IntersectionObserver(
             (entries) => {
                 entries.forEach((entry) => {
                     if (entry.isIntersecting) {
                         setIsVisible(true);
-                        observer.disconnect(); // Stop observing once visible
+                        observer.disconnect();
                     }
                 });
             },
             {
-                rootMargin: '100px', // Start loading slightly before entering viewport
+                rootMargin: '200px', // Increased margin for earlier loading
                 threshold: 0.01
             }
         );
@@ -55,7 +64,7 @@ export default function ProductCard({
         }
 
         return () => observer.disconnect();
-    }, []);
+    }, [priority]);
 
     // Check if image URL is valid
     const hasValidImage = product.imageUrl && !product.imageUrl.includes('placehold.co') && !imageError;
@@ -184,9 +193,10 @@ export default function ProductCard({
                                 <img
                                     src={product.imageUrl}
                                     alt={product.name}
-                                    className={`w-full h-full object-contain drop-shadow-md transition-opacity duration-300 ${imageLoaded ? 'opacity-100' : 'opacity-0'}`}
-                                    loading="lazy"
-                                    decoding="async"
+                                    className={`w-full h-full object-contain drop-shadow-md transition-opacity duration-200 ${imageLoaded ? 'opacity-100' : 'opacity-0'}`}
+                                    loading={priority ? "eager" : "lazy"}
+                                    decoding={priority ? "sync" : "async"}
+                                    fetchPriority={priority ? "high" : "auto"}
                                     onLoad={() => setImageLoaded(true)}
                                     onError={() => setImageError(true)}
                                 />
