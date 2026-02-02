@@ -8,6 +8,7 @@ import { useSearchParams, usePathname, useRouter } from 'next/navigation';
 import { useAuth } from '@/context/AuthContext';
 import { ThemeToggle } from "@/components/ui/theme-toggle";
 import { SupportModal } from "@/components/SupportModal";
+import { SearchInput } from "@/components/SearchInput";
 
 export default function Navbar() {
     const { setTheme, theme, resolvedTheme } = useTheme();
@@ -69,13 +70,7 @@ export default function Navbar() {
 
                 <div className="hidden md:block flex-1 max-w-md relative">
                     <Search className="absolute left-3 top-1/2 -translate-y-1/2 h-4 w-4 text-slate-400" />
-                    <input
-                        type="text"
-                        placeholder="Search products..."
-                        onChange={(e) => handleSearch(e.target.value)}
-                        value={searchParams.get('search')?.toString() || ''}
-                        className="w-full pl-10 pr-4 py-2 rounded-full border border-slate-200 dark:border-slate-800 bg-slate-50 dark:bg-slate-900/50 text-slate-900 dark:text-white placeholder-slate-400 focus:outline-none focus:ring-2 focus:ring-brand-green/20 focus:border-brand-green transition-all text-sm"
-                    />
+                    <SearchInput />
                 </div>
 
                 <div className="flex items-center gap-4 shrink-0">
