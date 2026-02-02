@@ -148,8 +148,10 @@ function ProductGrid() {
   useEffect(() => {
     const fetchMeta = async () => {
       // Check IndexedDB Cache
+      console.log('[Cache] Checking IndexedDB for categories...');
       const cached = await cacheDB.get<CategoryCache>(CACHE_KEYS.CATEGORIES, CACHE_VERSION, CACHE_DURATION);
       if (cached) {
+        console.log('[Cache] Found cached categories. Using cache.');
         // Hydrate Tree (Array -> Set)
         const hydratedTree: Record<string, Set<string>> = {};
         Object.keys(cached.tree).forEach(k => {
@@ -162,8 +164,10 @@ function ProductGrid() {
         if (Object.keys(cached.map).length > 0) return;
       }
 
+      console.log('[Cache] No valid category cache found. Fetching from database...');
       const { data } = await supabase.from('categories').select('name, parent_name, image_url, link');
       if (data) {
+        console.log(`[Cache] Fetched ${data.length} categories from database.`);
         const map: Record<string, { image: string, link: string | null }> = {};
         const tree: Record<string, Set<string>> = {};
 
@@ -196,7 +200,8 @@ function ProductGrid() {
         setCategoryTree(tree);
 
         // Save to IndexedDB cache
-        await cacheDB.set<CategoryCache>(CACHE_KEYS.CATEGORIES, { map, tree: treeForCache }, CACHE_VERSION);
+        const saved = await cacheDB.set<CategoryCache>(CACHE_KEYS.CATEGORIES, { map, tree: treeForCache }, CACHE_VERSION);
+        console.log(`[Cache] Saved categories to IndexedDB: ${saved ? 'success' : 'failed'}`);
       }
     };
     fetchMeta();
@@ -205,19 +210,24 @@ function ProductGrid() {
   // Fetch Products Effect
   useEffect(() => {
     const fetchAllProducts = async () => {
-      setIsLoading(true);
-
-      // Check IndexedDB Cache
+      // Check IndexedDB Cache FIRST (without loading state)
+      console.log('[Cache] Checking IndexedDB for products...');
       const cachedProducts = await cacheDB.get<Product[]>(CACHE_KEYS.PRODUCTS, CACHE_VERSION, CACHE_DURATION);
+
       if (cachedProducts && cachedProducts.length > 0) {
+        console.log(`[Cache] Found ${cachedProducts.length} cached products. Using cache.`);
         // Deduplicate cached products to prevent React key warnings
         const uniqueCachedProducts = Array.from(
           new Map(cachedProducts.map((p: Product) => [p.id, p])).values()
         ) as Product[];
         setProducts(uniqueCachedProducts);
         setIsLoading(false);
-        return;
+        return; // Exit early - no network request needed
       }
+
+      // Only show loading if we need to fetch from network
+      console.log('[Cache] No valid cache found. Fetching from database...');
+      setIsLoading(true);
 
       let allProducts: any[] = [];
       let page = 0;
@@ -248,6 +258,8 @@ function ProductGrid() {
         page++;
       }
 
+      console.log(`[Cache] Fetched ${allProducts.length} products from database.`);
+
       const mappedProducts = allProducts.map(p => ({
         id: p.id,
         name: p.name,
@@ -267,7 +279,8 @@ function ProductGrid() {
       setIsLoading(false);
 
       // Save to IndexedDB cache (no quota issues like localStorage)
-      await cacheDB.set<Product[]>(CACHE_KEYS.PRODUCTS, uniqueProducts, CACHE_VERSION);
+      const saved = await cacheDB.set<Product[]>(CACHE_KEYS.PRODUCTS, uniqueProducts, CACHE_VERSION);
+      console.log(`[Cache] Saved ${uniqueProducts.length} products to IndexedDB: ${saved ? 'success' : 'failed'}`);
     };
 
     fetchAllProducts();
@@ -638,25 +651,50 @@ function ProductGrid() {
 
         {/* Product Grid */}
         <div className="flex-1">
-          <div className={`grid grid-cols-2 ${activeCategory !== 'All' ? 'md:grid-cols-2 lg:grid-cols-3 xl:grid-cols-4' : 'md:grid-cols-3 lg:grid-cols-4 xl:grid-cols-5'} gap-6`}>
-            {filteredProducts.map(product => (
-              <ProductCard
-                key={product.id}
-                product={product}
-                isSelectionMode={isSelectionMode}
-                isSelected={selectedProducts.has(product.id)}
-                onToggle={() => handleProductToggle(product.id)}
-              />
-            ))}
-
-            {isLoading && (
-              <div className="col-span-full py-20 text-center text-slate-500">
-                Loading products...
+          {/* Loading State - Beautiful animated skeleton */}
+          {isLoading && (
+            <div className="space-y-8">
+              {/* Loading Header */}
+              <div className="text-center py-8">
+                <div className="inline-flex items-center gap-3 px-6 py-3 bg-gradient-to-r from-brand-green/10 to-emerald-500/10 rounded-full">
+                  <div className="relative">
+                    <div className="w-6 h-6 border-2 border-brand-green/30 border-t-brand-green rounded-full animate-spin" />
+                  </div>
+                  <span className="text-brand-green font-medium">Loading your product library...</span>
+                </div>
               </div>
-            )}
-          </div>
 
-          {filteredProducts.length === 0 && (
+              {/* Skeleton Grid */}
+              <div className={`grid grid-cols-2 ${activeCategory !== 'All' ? 'md:grid-cols-2 lg:grid-cols-3 xl:grid-cols-4' : 'md:grid-cols-3 lg:grid-cols-4 xl:grid-cols-5'} gap-6`}>
+                {[...Array(12)].map((_, i) => (
+                  <div key={i} className="animate-pulse">
+                    <div className="aspect-square bg-slate-200 dark:bg-slate-800 rounded-2xl mb-3" />
+                    <div className="h-3 bg-slate-200 dark:bg-slate-700 rounded-full w-16 mb-2" />
+                    <div className="h-4 bg-slate-200 dark:bg-slate-700 rounded-full w-full mb-1" />
+                    <div className="h-4 bg-slate-200 dark:bg-slate-700 rounded-full w-2/3" />
+                  </div>
+                ))}
+              </div>
+            </div>
+          )}
+
+          {/* Products Grid - Only show when not loading */}
+          {!isLoading && filteredProducts.length > 0 && (
+            <div className={`grid grid-cols-2 ${activeCategory !== 'All' ? 'md:grid-cols-2 lg:grid-cols-3 xl:grid-cols-4' : 'md:grid-cols-3 lg:grid-cols-4 xl:grid-cols-5'} gap-6`}>
+              {filteredProducts.map(product => (
+                <ProductCard
+                  key={product.id}
+                  product={product}
+                  isSelectionMode={isSelectionMode}
+                  isSelected={selectedProducts.has(product.id)}
+                  onToggle={() => handleProductToggle(product.id)}
+                />
+              ))}
+            </div>
+          )}
+
+          {/* Empty State - Only show when not loading AND no products */}
+          {!isLoading && filteredProducts.length === 0 && (
             <div className="text-center py-24">
               <div className="inline-flex items-center justify-center h-16 w-16 rounded-full bg-slate-100 dark:bg-slate-800 text-slate-400 mb-4">
                 <Search className="h-8 w-8" />
