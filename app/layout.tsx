@@ -15,6 +15,7 @@ export const metadata: Metadata = {
 
 import { ThemeProvider } from "@/components/theme-provider";
 import { AuthProvider } from "@/context/AuthContext";
+import { DataProvider } from "@/context/DataContext";
 import { Toaster } from "@/components/ui/sonner";
 
 export default function RootLayout({
@@ -34,8 +35,10 @@ export default function RootLayout({
           disableTransitionOnChange
         >
           <AuthProvider>
-            {children}
-            <Toaster />
+            <DataProvider>
+              {children}
+              <Toaster />
+            </DataProvider>
           </AuthProvider>
         </ThemeProvider>
       </body>

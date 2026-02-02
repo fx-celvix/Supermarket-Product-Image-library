@@ -7,7 +7,7 @@ import ProductCard from "@/components/ProductCard";
 import ImageActionModal from "@/components/ImageActionModal";
 import { Search, Download, Check, X, FileSpreadsheet, RefreshCw } from "lucide-react";
 import Image from "next/image";
-import { useSearchParams } from 'next/navigation';
+import { useSearchParams, useRouter, usePathname } from 'next/navigation';
 import {
   Carousel,
   CarouselContent,
@@ -27,37 +27,21 @@ import * as XLSX from 'xlsx';
 
 // Mock Data removed. Using dynamic data from Supabase.
 
-import { createClient } from '@/utils/supabase/client';
-import { cacheDB, CACHE_KEYS, CACHE_VERSION, CACHE_DURATION } from '@/utils/cache';
+import { useData } from '@/context/DataContext';
 
-interface Product {
-  id: string;
-  name: string;
-  category: string;
-  subcategory: string;
-  image_url: string; // From DB
-  imageUrl: string; // Mapped for UI
-  price: number | null;
-  size?: string;
-}
+// Interfaces are now inferred from the hook or imported if needed
+// But we can just use the inferred types from useData
 
-// Category cache structure for IndexedDB
-interface CategoryCache {
-  map: Record<string, { image: string, link: string | null }>;
-  tree: Record<string, string[]>;
-}
 
 function ProductGrid() {
   const [activeCategory, setActiveCategory] = useState('All');
   const [activeSubCategory, setActiveSubCategory] = useState('All');
   const searchParams = useSearchParams();
+  const router = useRouter();
+  const pathname = usePathname();
   const searchQuery = searchParams.get('search') || '';
 
-  // Supabase Integration
-  const supabase = createClient();
-  const [products, setProducts] = useState<Product[]>([]);
-  const [isLoading, setIsLoading] = useState(true);
-  const [isCacheRefreshing, setIsCacheRefreshing] = useState(false);
+  const { products, categoryMeta, categoryTree, isLoading, isCacheRefreshing, refreshCache } = useData();
 
   // Selection & Export Logic
   const [isSelectionMode, setIsSelectionMode] = useState(false);
@@ -124,171 +108,25 @@ function ProductGrid() {
     XLSX.writeFile(workbook, `products_export_${new Date().toISOString().slice(0, 10)}.xlsx`);
   };
 
-  // Fetch Category Metadata & Build Tree
-  const [categoryMeta, setCategoryMeta] = useState<Record<string, { image: string, link: string | null }>>({});
-  const [categoryTree, setCategoryTree] = useState<Record<string, Set<string>>>({});
-
-  // Cleanup old localStorage cache on mount (migration to IndexedDB)
-  useEffect(() => {
-    const keysToClean = ['grocery_cache_categories', 'grocery_cache_products', 'grocery_cache_categories_v1', 'grocery_cache_products_v1'];
-    keysToClean.forEach(key => {
-      if (localStorage.getItem(key)) {
-        localStorage.removeItem(key);
-      }
-    });
-  }, []);
-
-  // Force refresh cache - clears IndexedDB cache and reloads page
-  const forceRefreshCache = async () => {
-    setIsCacheRefreshing(true);
-    await cacheDB.clear();
-    window.location.reload();
-  };
-
-  useEffect(() => {
-    const fetchMeta = async () => {
-      // Check IndexedDB Cache
-      console.log('[Cache] Checking IndexedDB for categories...');
-      const cached = await cacheDB.get<CategoryCache>(CACHE_KEYS.CATEGORIES, CACHE_VERSION, CACHE_DURATION);
-      if (cached) {
-        console.log('[Cache] Found cached categories. Using cache.');
-        // Hydrate Tree (Array -> Set)
-        const hydratedTree: Record<string, Set<string>> = {};
-        Object.keys(cached.tree).forEach(k => {
-          hydratedTree[k] = new Set(cached.tree[k]);
-        });
-
-        setCategoryMeta(cached.map);
-        setCategoryTree(hydratedTree);
-
-        if (Object.keys(cached.map).length > 0) return;
-      }
-
-      console.log('[Cache] No valid category cache found. Fetching from database...');
-      const { data } = await supabase.from('categories').select('name, parent_name, image_url, link');
-      if (data) {
-        console.log(`[Cache] Fetched ${data.length} categories from database.`);
-        const map: Record<string, { image: string, link: string | null }> = {};
-        const tree: Record<string, Set<string>> = {};
-
-        data.forEach((c: any) => {
-          const parent = c.parent_name ? c.parent_name.trim().toLowerCase() : 'root';
-          const name = c.name ? c.name.trim().toLowerCase() : '';
-
-          if (name) {
-            const key = `${parent}:${name}`;
-            if (c.image_url || c.link) {
-              map[key] = {
-                image: c.image_url,
-                link: c.link
-              };
-            }
-
-            // Build Tree
-            if (!tree[parent]) tree[parent] = new Set();
-            tree[parent].add(c.name.trim());
-          }
-        });
-
-        // Serialize Sets for caching (Sets are not JSON serializable)
-        const treeForCache: Record<string, string[]> = {};
-        Object.keys(tree).forEach(k => {
-          treeForCache[k] = Array.from(tree[k]);
-        });
-
-        setCategoryMeta(map);
-        setCategoryTree(tree);
-
-        // Save to IndexedDB cache
-        const saved = await cacheDB.set<CategoryCache>(CACHE_KEYS.CATEGORIES, { map, tree: treeForCache }, CACHE_VERSION);
-        console.log(`[Cache] Saved categories to IndexedDB: ${saved ? 'success' : 'failed'}`);
-      }
-    };
-    fetchMeta();
-  }, []);
-
-  // Fetch Products Effect
-  useEffect(() => {
-    const fetchAllProducts = async () => {
-      // Check IndexedDB Cache FIRST (without loading state)
-      console.log('[Cache] Checking IndexedDB for products...');
-      const cachedProducts = await cacheDB.get<Product[]>(CACHE_KEYS.PRODUCTS, CACHE_VERSION, CACHE_DURATION);
-
-      if (cachedProducts && cachedProducts.length > 0) {
-        console.log(`[Cache] Found ${cachedProducts.length} cached products. Using cache.`);
-        // Deduplicate cached products to prevent React key warnings
-        const uniqueCachedProducts = Array.from(
-          new Map(cachedProducts.map((p: Product) => [p.id, p])).values()
-        ) as Product[];
-        setProducts(uniqueCachedProducts);
-        setIsLoading(false);
-        return; // Exit early - no network request needed
-      }
-
-      // Only show loading if we need to fetch from network
-      console.log('[Cache] No valid cache found. Fetching from database...');
-      setIsLoading(true);
-
-      let allProducts: any[] = [];
-      let page = 0;
-      let hasMore = true;
-      const pageSize = 1000;
-
-      while (hasMore) {
-        const from = page * pageSize;
-        const to = from + pageSize - 1;
-
-        const { data, error } = await supabase
-          .from('products')
-          .select('*')
-          .range(from, to)
-          .order('created_at', { ascending: false });
-
-        if (error) {
-          console.error('Error fetching products page:', page, error);
-          break;
-        }
-
-        if (data && data.length > 0) {
-          allProducts = [...allProducts, ...data];
-          if (data.length < pageSize) hasMore = false;
-        } else {
-          hasMore = false;
-        }
-        page++;
-      }
-
-      console.log(`[Cache] Fetched ${allProducts.length} products from database.`);
-
-      const mappedProducts = allProducts.map(p => ({
-        id: p.id,
-        name: p.name,
-        category: p.category,
-        subcategory: p.subcategory,
-        image_url: p.image_url,
-        imageUrl: p.image_url,
-        price: p.price
-      }));
-
-      // Deduplicate by id to prevent React key warnings
-      const uniqueProducts = Array.from(
-        new Map(mappedProducts.map(p => [p.id, p])).values()
-      ) as Product[];
-
-      setProducts(uniqueProducts);
-      setIsLoading(false);
-
-      // Save to IndexedDB cache (no quota issues like localStorage)
-      const saved = await cacheDB.set<Product[]>(CACHE_KEYS.PRODUCTS, uniqueProducts, CACHE_VERSION);
-      console.log(`[Cache] Saved ${uniqueProducts.length} products to IndexedDB: ${saved ? 'success' : 'failed'}`);
-    };
-
-    fetchAllProducts();
-  }, []);
-
   const handleCategoryChange = (cat: string) => {
     setActiveCategory(cat);
     setActiveSubCategory('All');
+    // Clear search query when switching categories
+    const params = new URLSearchParams(searchParams.toString());
+    if (params.has('search')) {
+      params.delete('search');
+      router.replace(`${pathname}?${params.toString()}`);
+    }
+  };
+
+  const handleSubCategoryChange = (subCat: string) => {
+    setActiveSubCategory(subCat);
+    // Clear search query when switching subcategories
+    const params = new URLSearchParams(searchParams.toString());
+    if (params.has('search')) {
+      params.delete('search');
+      router.replace(`${pathname}?${params.toString()}`);
+    }
   };
 
   const filteredProducts = products.filter(product => {
@@ -508,7 +346,7 @@ function ProductGrid() {
             {subCategories.length > 0 && (
               <div className="md:hidden mt-2 flex items-center gap-2 overflow-x-auto pb-2 scrollbar-hide border-t border-slate-200 dark:border-slate-800 pt-3">
                 <button
-                  onClick={() => setActiveSubCategory('All')}
+                  onClick={() => handleSubCategoryChange('All')}
                   className={`flex-shrink-0 whitespace-nowrap px-3 py-1.5 rounded-full text-xs font-medium transition-all ${activeSubCategory === 'All'
                     ? 'bg-brand-green text-white shadow-sm'
                     : 'bg-slate-100 dark:bg-slate-800 text-slate-600 dark:text-slate-400 hover:bg-slate-200 dark:hover:bg-slate-700'
@@ -519,7 +357,7 @@ function ProductGrid() {
                 {subCategories.map(sub => (
                   <div key={sub.name} className="relative flex-shrink-0 group/msub">
                     <button
-                      onClick={() => setActiveSubCategory(sub.name)}
+                      onClick={() => handleSubCategoryChange(sub.name)}
                       className={`flex items-center gap-2 px-3 py-1.5 rounded-full text-xs font-medium transition-all ${activeSubCategory === sub.name
                         ? 'bg-brand-green text-white shadow-sm'
                         : 'bg-slate-100 dark:bg-slate-800 text-slate-600 dark:text-slate-400 hover:bg-slate-200 dark:hover:bg-slate-700'
@@ -601,7 +439,7 @@ function ProductGrid() {
               </div>
               <div className="overflow-y-auto p-3 pt-2 scrollbar-hide grid grid-cols-1 gap-2">
                 <button
-                  onClick={() => setActiveSubCategory('All')}
+                  onClick={() => handleSubCategoryChange('All')}
                   className={`w-full text-center px-3 py-2 rounded-xl text-xs font-medium transition-colors ${activeSubCategory === 'All'
                     ? 'bg-brand-green text-white shadow-md shadow-brand-green/20'
                     : 'bg-slate-50 dark:bg-slate-800/50 text-slate-600 dark:text-slate-400 hover:bg-slate-100 dark:hover:bg-slate-800'
@@ -612,7 +450,7 @@ function ProductGrid() {
                 {subCategories.map(sub => (
                   <div key={sub.name} className="relative group/sub">
                     <button
-                      onClick={() => setActiveSubCategory(sub.name)}
+                      onClick={() => handleSubCategoryChange(sub.name)}
                       className={`w-full flex flex-col items-center justify-center gap-2 p-3 rounded-xl transition-all duration-300 ${activeSubCategory === sub.name
                         ? 'bg-white dark:bg-slate-800 border-2 border-brand-green shadow-md scale-105 z-10'
                         : 'bg-slate-50 dark:bg-slate-800/50 border border-transparent hover:bg-white dark:hover:bg-slate-800 hover:shadow-md hover:scale-105'
