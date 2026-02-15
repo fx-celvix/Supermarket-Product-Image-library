@@ -106,10 +106,13 @@ export default function LoginPage() {
                     </div>
 
                     {/* Footer */}
-                    <div className="absolute bottom-8 left-20">
+                    <div className="absolute bottom-8 left-20 flex flex-col gap-1">
                         <a href="https://celvix.in" target="_blank" rel="noopener noreferrer" className="text-xs text-slate-600 hover:text-slate-400 transition-colors">
                             © 2026 Celvix Technologies
                         </a>
+                        <span className="text-[10px] text-slate-600">
+                            Designed by <a href="https://celvix.in" target="_blank" rel="noopener noreferrer" className="hover:text-slate-400 transition-colors">Celvix</a>
+                        </span>
                     </div>
                 </div>
 
@@ -232,12 +235,17 @@ export default function LoginPage() {
                         </div>
 
                         {/* Mobile footer */}
-                        <p className="mt-8 text-center text-xs text-slate-600 lg:hidden">
-                            © 2026{' '}
-                            <a href="https://celvix.in" target="_blank" rel="noopener noreferrer" className="text-emerald-500/60 hover:text-emerald-400 transition-colors">
-                                Celvix Technologies
-                            </a>
-                        </p>
+                        <div className="mt-8 text-center text-xs text-slate-600 lg:hidden flex flex-col gap-1 items-center">
+                            <p>
+                                © 2026{' '}
+                                <a href="https://celvix.in" target="_blank" rel="noopener noreferrer" className="text-emerald-500/60 hover:text-emerald-400 transition-colors">
+                                    Celvix Technologies
+                                </a>
+                            </p>
+                            <span className="text-[10px]">
+                                Designed by <a href="https://celvix.in" target="_blank" rel="noopener noreferrer" className="hover:text-slate-400 transition-colors">Celvix</a>
+                            </span>
+                        </div>
                     </div>
                 </div>
             </main>
