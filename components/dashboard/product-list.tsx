@@ -20,7 +20,15 @@ interface Product {
 }
 
 export function ProductList({ initialProducts }: { initialProducts: Product[] }) {
-    const [products, setProducts] = useState(initialProducts);
+    const [products, setProducts] = useState(() => {
+        // Deduplicate by id to prevent React duplicate key warnings
+        const seen = new Set<string>();
+        return initialProducts.filter(p => {
+            if (seen.has(p.id)) return false;
+            seen.add(p.id);
+            return true;
+        });
+    });
     const [isDeleting, setIsDeleting] = useState<string | null>(null);
     const [searchQuery, setSearchQuery] = useState("");
     const [selectedCategory, setSelectedCategory] = useState("All");

@@ -2,16 +2,19 @@
 
 import { useState } from "react";
 import Link from "next/link";
-import { Plus, Upload, Download } from "lucide-react";
+import { Plus, Upload, Download, Trash2, AlertTriangle } from "lucide-react";
 import { BulkUploadModal } from "./bulk-upload-modal";
 import { useRouter } from "next/navigation";
 import { createClient } from "@/utils/supabase/client";
 import * as XLSX from "xlsx";
 import { toast } from "sonner";
+import { cacheDB } from "@/utils/cache";
 
 export function ProductsHeaderActions() {
     const [isModalOpen, setIsModalOpen] = useState(false);
     const [isExporting, setIsExporting] = useState(false);
+    const [isDeleteModalOpen, setIsDeleteModalOpen] = useState(false);
+    const [isDeleting, setIsDeleting] = useState(false);
     const router = useRouter();
     const supabase = createClient();
 
@@ -99,6 +102,34 @@ export function ProductsHeaderActions() {
         }
     };
 
+    const handleDeleteAll = async () => {
+        setIsDeleting(true);
+        try {
+            // Delete all products using a filter that matches all rows
+            const { error } = await supabase
+                .from("products")
+                .delete()
+                .neq("id", "00000000-0000-0000-0000-000000000000");
+
+            if (error) {
+                console.error("Supabase delete error:", JSON.stringify(error, null, 2));
+                throw new Error(error.message || "Permission denied. Make sure you are logged in as admin.");
+            }
+
+            // Clear cache
+            await cacheDB.clear();
+
+            toast.success("All products deleted successfully");
+            setIsDeleteModalOpen(false);
+            router.refresh();
+        } catch (error: any) {
+            console.error("Delete all failed:", error);
+            toast.error(error.message || "Failed to delete. Check console for details.");
+        } finally {
+            setIsDeleting(false);
+        }
+    };
+
     return (
         <>
             <div className="flex items-center gap-3 w-full sm:w-auto">
@@ -124,6 +155,14 @@ export function ProductsHeaderActions() {
                     <Plus className="h-4 w-4" />
                     New Product
                 </Link>
+                <button
+                    onClick={() => setIsDeleteModalOpen(true)}
+                    className="flex items-center gap-2 px-4 py-2.5 bg-red-500/10 text-red-500 border border-red-500/20 rounded-xl hover:bg-red-500/20 hover:border-red-500/40 transition-all font-medium justify-center flex-1 sm:flex-none"
+                    title="Delete all products"
+                >
+                    <Trash2 className="h-4 w-4" />
+                    Delete All
+                </button>
             </div>
 
             <BulkUploadModal
@@ -131,6 +170,54 @@ export function ProductsHeaderActions() {
                 onClose={() => setIsModalOpen(false)}
                 onSuccess={handleSuccess}
             />
+
+            {/* Delete All Confirmation Modal */}
+            {isDeleteModalOpen && (
+                <div className="fixed inset-0 z-50 flex items-center justify-center bg-black/60 backdrop-blur-sm">
+                    <div className="bg-white dark:bg-slate-900 rounded-2xl border border-slate-200 dark:border-slate-800 shadow-2xl p-6 max-w-md w-full mx-4 animate-in fade-in zoom-in-95 duration-200">
+                        <div className="flex items-center gap-3 mb-4">
+                            <div className="flex items-center justify-center h-12 w-12 rounded-full bg-red-500/10 text-red-500 shrink-0">
+                                <AlertTriangle className="h-6 w-6" />
+                            </div>
+                            <div>
+                                <h3 className="text-lg font-bold text-slate-900 dark:text-white">Delete All Products</h3>
+                                <p className="text-sm text-slate-500 dark:text-slate-400">This action cannot be undone</p>
+                            </div>
+                        </div>
+
+                        <p className="text-slate-600 dark:text-slate-300 text-sm mb-6">
+                            Are you sure you want to permanently delete <strong>all products</strong> from the database? This will remove every product entry and clear the local cache.
+                        </p>
+
+                        <div className="flex items-center gap-3 justify-end">
+                            <button
+                                onClick={() => setIsDeleteModalOpen(false)}
+                                disabled={isDeleting}
+                                className="px-4 py-2.5 text-sm font-medium text-slate-700 dark:text-slate-300 bg-slate-100 dark:bg-slate-800 rounded-xl hover:bg-slate-200 dark:hover:bg-slate-700 transition-colors"
+                            >
+                                Cancel
+                            </button>
+                            <button
+                                onClick={handleDeleteAll}
+                                disabled={isDeleting}
+                                className="px-4 py-2.5 text-sm font-bold text-white bg-red-500 rounded-xl hover:bg-red-600 transition-colors shadow-lg shadow-red-500/20 flex items-center gap-2"
+                            >
+                                {isDeleting ? (
+                                    <>
+                                        <div className="w-4 h-4 border-2 border-white/30 border-t-white rounded-full animate-spin" />
+                                        Deleting...
+                                    </>
+                                ) : (
+                                    <>
+                                        <Trash2 className="h-4 w-4" />
+                                        Yes, Delete All
+                                    </>
+                                )}
+                            </button>
+                        </div>
+                    </div>
+                </div>
+            )}
         </>
     );
 }
