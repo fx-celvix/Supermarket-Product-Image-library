@@ -9,6 +9,7 @@ import { toast } from 'sonner';
 interface AuthContextType {
     user: User | null;
     login: (email: string, password?: string) => Promise<void>;
+    loginWithGoogle: () => Promise<void>;
     signup: (name: string, email: string, password?: string) => Promise<void>;
     logout: () => Promise<void>;
     isLoading: boolean;
@@ -59,6 +60,16 @@ export function AuthProvider({ children }: { children: ReactNode }) {
         }
     };
 
+    const loginWithGoogle = async () => {
+        const { error } = await supabase.auth.signInWithOAuth({
+            provider: 'google',
+            options: {
+                redirectTo: `${window.location.origin}/auth/callback`,
+            },
+        });
+        if (error) throw error;
+    };
+
     const signup = async (name: string, email: string, password?: string) => {
         if (password) {
             const { data, error } = await supabase.auth.signUp({
@@ -93,7 +104,7 @@ export function AuthProvider({ children }: { children: ReactNode }) {
     };
 
     return (
-        <AuthContext.Provider value={{ user, login, signup, logout, isLoading }}>
+        <AuthContext.Provider value={{ user, login, loginWithGoogle, signup, logout, isLoading }}>
             {children}
         </AuthContext.Provider>
     );
