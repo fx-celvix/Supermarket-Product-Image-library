@@ -50,7 +50,7 @@ export async function GET(req: NextRequest) {
             );
         }
 
-        const contentType = response.headers.get('content-type') || 'application/octet-stream';
+        const contentType = response.headers.get('content-type') || 'image/png';
         const arrayBuffer = await response.arrayBuffer();
 
         if (arrayBuffer.byteLength === 0) {
@@ -58,13 +58,23 @@ export async function GET(req: NextRequest) {
             return NextResponse.json({ error: 'Empty response from origin' }, { status: 502 });
         }
 
+        // Determine proper file extension from content-type
+        const ext = contentType.includes('jpeg') || contentType.includes('jpg') ? 'jpg'
+            : contentType.includes('png') ? 'png'
+                : contentType.includes('webp') ? 'webp'
+                    : contentType.includes('svg') ? 'svg'
+                        : contentType.includes('gif') ? 'gif'
+                            : 'png'; // Default to png
+
+        const finalFilename = `${filename.replace(/\.[^.]+$/, '')}.${ext}`;
+
         const headers = new Headers();
         headers.set('Content-Type', contentType);
-        headers.set('Content-Disposition', `attachment; filename="${encodeURIComponent(filename)}"`);
+        headers.set('Content-Disposition', `attachment; filename="${encodeURIComponent(finalFilename)}"`);
         headers.set('Content-Length', String(arrayBuffer.byteLength));
         headers.set('Access-Control-Allow-Origin', '*');
         headers.set('Access-Control-Allow-Methods', 'GET, OPTIONS');
-        headers.set('Cache-Control', 'public, max-age=86400'); // Cache for 1 day
+        headers.set('Cache-Control', 'public, max-age=86400');
 
         return new NextResponse(arrayBuffer, {
             status: 200,

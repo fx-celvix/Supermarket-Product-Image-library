@@ -67,16 +67,28 @@ export default function ImageActionModal({
     const handleDownload = async () => {
         setDownloading(true);
         try {
-            const extension = imageUrl.split('.').pop()?.split('?')[0] || 'jpg';
-            const filename = `${title.replace(/\s+/g, '-').toLowerCase()}.${extension}`;
+            const safeTitle = title.replace(/[^a-zA-Z0-9\s-]/g, '').replace(/\s+/g, '-').toLowerCase();
+
+            // For Cloudinary URLs, force PNG format by replacing f_auto with f_png
+            let downloadUrl = imageUrl;
+            if (downloadUrl.includes('res.cloudinary.com')) {
+                downloadUrl = downloadUrl.replace(/f_auto/g, 'f_png');
+            }
 
             // STRATEGY 1: Proxy Download (Preferred)
             try {
-                const response = await fetch(`/api/download-image?url=${encodeURIComponent(imageUrl)}&filename=${encodeURIComponent(filename)}`);
+                const response = await fetch(`/api/download-image?url=${encodeURIComponent(downloadUrl)}&filename=${encodeURIComponent(safeTitle)}`);
 
                 if (response.ok) {
                     const blob = await response.blob();
-                    downloadBlob(blob, filename);
+                    // Get the real filename from Content-Disposition or build from content-type
+                    const contentDisposition = response.headers.get('content-disposition');
+                    let finalFilename = `${safeTitle}.png`;
+                    if (contentDisposition) {
+                        const match = contentDisposition.match(/filename="?([^"]+)"?/);
+                        if (match) finalFilename = decodeURIComponent(match[1]);
+                    }
+                    downloadBlob(blob, finalFilename);
                     toast.success('Download started');
                     onClose();
                     return;
@@ -89,10 +101,15 @@ export default function ImageActionModal({
 
             // STRATEGY 2: Client Direct Fetch (CORS)
             try {
-                const response = await fetch(imageUrl);
+                const response = await fetch(downloadUrl);
                 if (response.ok) {
                     const blob = await response.blob();
-                    downloadBlob(blob, filename);
+                    const contentType = response.headers.get('content-type') || 'image/png';
+                    const ext = contentType.includes('jpeg') || contentType.includes('jpg') ? 'jpg'
+                        : contentType.includes('webp') ? 'webp'
+                            : contentType.includes('svg') ? 'svg'
+                                : 'png';
+                    downloadBlob(blob, `${safeTitle}.${ext}`);
                     toast.success('Download started');
                     onClose();
                     return;

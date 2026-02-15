@@ -84,12 +84,18 @@ export default function ProductCard({
         e.stopPropagation();
         setDownloading(true);
         try {
-            const extension = product.imageUrl.split('.').pop()?.split('?')[0] || 'jpg';
-            const filename = `${product.name.replace(/\s+/g, '-').toLowerCase()}.${extension}`;
+            const safeTitle = product.name.replace(/[^a-zA-Z0-9\s-]/g, '').replace(/\s+/g, '-').toLowerCase();
+            const filename = `${safeTitle}.png`;
+
+            // For Cloudinary URLs, force PNG format instead of f_auto
+            let downloadUrl = product.imageUrl;
+            if (downloadUrl.includes('res.cloudinary.com')) {
+                downloadUrl = downloadUrl.replace(/f_auto/g, 'f_png');
+            }
 
             // STRATEGY 1: Proxy Download (Preferred)
             try {
-                const response = await fetch(`/api/download-image?url=${encodeURIComponent(product.imageUrl)}&filename=${encodeURIComponent(filename)}`);
+                const response = await fetch(`/api/download-image?url=${encodeURIComponent(downloadUrl)}&filename=${encodeURIComponent(filename)}`);
 
                 if (response.ok) {
                     const blob = await response.blob();
@@ -105,7 +111,7 @@ export default function ProductCard({
 
             // STRATEGY 2: Client Direct Fetch (CORS)
             try {
-                const response = await fetch(product.imageUrl);
+                const response = await fetch(downloadUrl);
                 if (response.ok) {
                     const blob = await response.blob();
                     downloadBlob(blob, filename);
@@ -117,7 +123,7 @@ export default function ProductCard({
             }
 
             // STRATEGY 3: Last Resort (New Tab)
-            window.open(product.imageUrl, '_blank');
+            window.open(downloadUrl, '_blank');
             toast('Image opened in new tab (Direct download blocked)', {
                 description: 'Right-click and "Save Image As" to save it.'
             });
